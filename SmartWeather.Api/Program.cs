@@ -4,7 +4,8 @@ using SmartWeather.Api.Data;
 using SmartWeather.Api.Services;
 using Polly;
 using Polly.Extensions.Http;
-using System.Net.Http;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
 
 
 var builder = WebApplication.CreateBuilder(args);
@@ -16,6 +17,9 @@ builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 builder.Services.AddEndpointsApiExplorer();
+
+builder.Services.AddMemoryCache();
+builder.Services.AddScoped<ForecastSummaryService>();
 
 
 // This tells the DI container: “Whenever a controller asks for WeatherDbContext, build one using SQL Server and this connection string”.\
@@ -55,7 +59,23 @@ builder.Services.AddScoped<ForecastSummaryService>();
 // one instance is created at startup and lives for the app's entire lifetime.
 builder.Services.AddHostedService<WeatherPollingService>();
 
+builder.Services.AddRateLimiter(options =>
+{
+    // Simple fixed window limiter named "smartForecastLimiter"
+    options.AddFixedWindowLimiter("smartForecastLimiter", limiterOptions =>
+    {
+        limiterOptions.PermitLimit = 10; // Allow 10 requests
+        limiterOptions.Window = TimeSpan.FromMinutes(1); // Per 1 minute
+        limiterOptions.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+        limiterOptions.QueueLimit = 0; // No queued requests
+    });
+
+    options.RejectionStatusCode = 429;
+});
+
 var app = builder.Build();
+
+app.UseRateLimiter();
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())

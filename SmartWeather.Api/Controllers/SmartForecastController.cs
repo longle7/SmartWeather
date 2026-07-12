@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using SmartWeather.Api.Services;
 
 namespace SmartWeather.Api.Controllers;
@@ -32,6 +33,7 @@ public class SmartForecastController : ControllerBase
 
     // GET: api/SmartForecast/{city}
     [HttpGet("{city}")]
+    [EnableRateLimiting("smartForecastLimiter")] // Apply limiter to this controller [web:272][web:275]
     public async Task<ActionResult<string>> Get(string city, CancellationToken cancellationToken)
     {
         var summary = await _summaryService.GetSmartSummaryAsync(city, cancellationToken);

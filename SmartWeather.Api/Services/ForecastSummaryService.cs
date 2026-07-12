@@ -6,6 +6,7 @@
 // Next is GeminiWeatherSummaryClient
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using SmartWeather.Api.Data;
 using SmartWeather.Api.Models;
 
@@ -22,15 +23,29 @@ public class ForecastSummaryService
 {
     private readonly WeatherDbContext _db;
     private readonly IWeatherSummaryClient _llmClient;
+    private readonly IMemoryCache _cache;
 
-    public ForecastSummaryService(WeatherDbContext db, IWeatherSummaryClient llmClient)
+    // ForecastSummaryService:
+    //  - Reads latest WeatherSnapshot for a city.
+    //  - Uses IMemoryCache to cache Gemini summaries per city for a short period.
+    //  - Avoids hitting Gemini on every request while still keeping summaries fresh.
+    public ForecastSummaryService(WeatherDbContext db, IWeatherSummaryClient llmClient, IMemoryCache cache)
     {
         _db = db;
         _llmClient = llmClient;
+        _cache = cache;
     }
 
     public async Task<string?> GetSmartSummaryAsync(string city, CancellationToken cancellationToken = default)
     {
+        // Try to get a cached summary for this city.
+        var cacheKey = $"SmartForecast:{city}";
+
+        if (_cache.TryGetValue(cacheKey, out string cachedSummary))
+        {
+            return cachedSummary;
+        }
+
         var normaizedCity = city.Trim().ToLowerInvariant();
 
         var snapshot = await _db.WeatherSnapshots
@@ -46,6 +61,13 @@ public class ForecastSummaryService
         var prompt = BuildPrompt(snapshot);
 
         var summary = await _llmClient.SummarizeAsync(prompt, cancellationToken);
+
+        // Store the summary in cache with a short expiration window.
+        var cacheOptions = new MemoryCacheEntryOptions()
+            .SetAbsoluteExpiration(TimeSpan.FromMinutes(5)); // 5 minutes is a good starting point [web:278][web:285]
+
+        _cache.Set(cacheKey, summary, cacheOptions);
+
         return summary;
     }
 
