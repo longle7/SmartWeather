@@ -86,6 +86,80 @@ Instead of just forwarding raw JSON from WeatherAPI, this endpoint demonstrates 
 - **Gemini API key**: stored in `.NET` user secrets under `Gemini:ApiKey`, also kept out of source control.
 - Configuration values are accessed via `IConfiguration` in `Program.cs` and `GeminiWeatherSummaryClient`, so keys can be injected securely in different environments.
 
+## SmartForecast Performance & Resilience
+
+To keep the AI layer efficient and production-friendly, SmartWeather adds both caching and rate limiting around the SmartForecast endpoint:
+
+- **Per-city in-memory caching**
+  - `ForecastSummaryService` uses `IMemoryCache` to cache Gemini-generated summaries per city.
+  - Cache key format: `SmartForecast:{city}`.
+  - Cache duration: 5 minutes.
+  - Behavior:
+    - First `GET /api/SmartForecast/{city}`:
+      - Reads the latest `WeatherSnapshot` for the city from SQL.
+      - Builds a prompt and calls Gemini via `GeminiWeatherSummaryClient`.
+      - Caches the returned summary.
+    - Subsequent requests within 5 minutes:
+      - Served directly from cache.
+      - No database query and no Gemini API call.
+  - This reduces latency and significantly lowers LLM/API usage while still keeping summaries fresh [web:278][web:285][web:296].
+
+- **Rate limiting on SmartForecast**
+  - ASP.NET Core rate limiting middleware is configured with a fixed window limiter named `smartForecastLimiter`.
+  - `SmartForecastController` is annotated with `[EnableRateLimiting("smartForecastLimiter")]`.
+  - Example policy:
+    - Permit limit: 10 requests per minute.
+    - Rejections return HTTP 429 (Too Many Requests).
+  - This protects the AI-backed endpoint from abuse or accidental request storms [web:272][web:273][web:279].
+
+Together, these patterns demonstrate:
+- In-memory caching to avoid unnecessary external calls.
+- Controlled API access with rate limiting.
+- A realistic backend design for AI-assisted features.
+
+## Testing (Planned)
+
+To keep the codebase maintainable and interview-ready, the next steps include unit and integration tests:
+
+- **Unit tests**
+  - `ForecastSummaryService`:
+    - Uses an in-memory `WeatherDbContext` (e.g., EF Core InMemory provider) to verify:
+      - Returns `null` when no snapshot exists.
+      - Builds prompts correctly and calls the LLM client once on cache miss.
+      - Returns cached summaries without re-calling the LLM.
+  - `GeminiWeatherSummaryClient`:
+    - Tested with a mocked `HttpMessageHandler` / `HttpClient` to:
+      - Verify request shape (endpoint, headers) and response parsing into plain text.
+      - Avoid calling the real Gemini API during tests [web:287][web:289][web:291][web:297].
+
+- **Integration tests**
+  - End-to-end tests using `WebApplicationFactory` / TestServer:
+    - Call `GET /api/SmartForecast/{city}` with seeded `WeatherSnapshots`.
+    - Assert that the controller returns the expected summary when the LLM client is mocked.
+    - Provide realistic coverage of routing, DI, caching, and controller behavior [web:298][web:292][web:294].
+
+These tests will make the project a strong example of testable architecture (services + interfaces + controllers) in ASP.NET Core.
+
+## Containerization (Planned)
+
+Next iteration: run SmartWeather as a containerized backend service.
+
+- **Docker**
+  - Add a `Dockerfile` for `SmartWeather.Api` targeting .NET 10.
+  - Use multi-stage builds (restore, build, publish) to keep images small.
+  - Expose the HTTP port and configure environment variables for WeatherAPI and Gemini keys.
+
+- **Docker Compose / .NET Aspire**
+  - Optionally add a `docker-compose.yml` or .NET Aspire AppHost to:
+    - Run the API + SQL Server LocalDB (or a full SQL Server/SQL Edge container) together.
+    - Make local setup a single command (e.g. `docker compose up`).
+
+Containerization will:
+- Make the backend easy to run on any machine.
+- Demonstrate familiarity with modern deployment practices.
+- Let you speak about cloud-native patterns in interviews (even before adding Kubernetes).
+
+
 ## Getting Started
 
 1. **Clone the repository**
