@@ -44,25 +44,47 @@ SmartWeather is a modern .NET 10 backend project that showcases core skills for 
   - OpenAPI document: `GET /openapi/v1.json`
   - Scalar interactive UI: `GET /scalar` (lists all API endpoints and lets you call them).
 
-## Planned AI Feature: Smart Forecast Summary
+## AI-Powered Smart Forecast (Gemini)
 
-Next milestone: add an LLM-powered “smart forecast” summary endpoint, built on top of the stored weather snapshots:
+SmartWeather includes an AI-assisted endpoint that turns raw weather data into a human-friendly forecast summary using Google Gemini.
 
-- **Planned Design**
+### How it works
+
+- **Data collection**
+  - `WeatherPollingService` runs as a hosted background worker.
+  - On a schedule, it calls WeatherAPI.com’s `current.json` endpoint for a configured city.
+  - Each reading is stored as a `WeatherSnapshot` in SQL Server via `WeatherDbContext`.
+
+- **AI orchestration**
   - `ForecastSummaryService`:
-    - Reads latest `WeatherSnapshot` data for a city.
-    - Constructs a concise prompt with temp, conditions, and time.
-    - Delegates to an `IWeatherSummaryLlmClient` interface for actual LLM calls.
-  - `SmartForecastController`:
-    - `GET /api/SmartForecast/{city}` returns human-friendly text like:
-      > “Today in Boston: 23°C, partly cloudy, light breeze. Good day for a walk, but bring a light jacket in the evening.”
-- **LLM Provider**
-  - Intended to be provider-agnostic (OpenAI, Azure OpenAI, etc.).
-  - API keys and model settings stored via .NET user secrets and environment variables, never in source control [web:128][web:216][web:220].
+    - Reads the latest `WeatherSnapshot` for a given city.
+    - Builds a concise prompt describing the temperature, condition, and timestamp.
+    - Calls an injected `IWeatherSummaryClient` to turn that prompt into natural language.
+  - `GeminiWeatherSummaryClient`:
+    - Implements `IWeatherSummaryClient` using Google’s Gemini API.
+    - Sends a `generateContent` request to Gemini (1.5 Flash / 2.0 Flash-Lite).
+    - Extracts the summary text from the first response candidate and returns it.
 
-This design demonstrates:
-- Clean separation between data collection (WeatherAPI + worker), storage (EF Core), and AI summarization logic.
-- Ability to wrap external APIs as tools for LLMs and generate natural language from structured data [web:227][web:231][web:239].
+- **API surface**
+  - `SmartForecastController` exposes:
+    - `GET /api/SmartForecast/{city}`
+  - When you call this endpoint:
+    1. The controller passes `{city}` to `ForecastSummaryService`.
+    2. The service fetches the latest snapshot for that city and builds a prompt.
+    3. Gemini generates a short, readable forecast paragraph.
+    4. The controller returns that summary as plain text in the HTTP response.
+
+Instead of just forwarding raw JSON from WeatherAPI, this endpoint demonstrates how to combine:
+- Scheduled data ingestion (background worker),
+- Persistence (EF Core),
+- External APIs (WeatherAPI + Gemini),
+- And LLM-based summarization into a cohesive feature.
+
+### Secret management
+
+- **WeatherAPI key**: stored in `.NET` user secrets under `WeatherApi:ApiKey`, never committed to Git.
+- **Gemini API key**: stored in `.NET` user secrets under `Gemini:ApiKey`, also kept out of source control.
+- Configuration values are accessed via `IConfiguration` in `Program.cs` and `GeminiWeatherSummaryClient`, so keys can be injected securely in different environments.
 
 ## Getting Started
 
