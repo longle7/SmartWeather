@@ -1,6 +1,6 @@
 # SmartWeather
 
-SmartWeather is a modern .NET 10 backend project that showcases core skills for C#/.NET roles: RESTful APIs, EF Core persistence, background workers, resilient HTTP calls with Polly, and OpenAPI documentation via Scalar UI. It integrates with WeatherAPI.com to fetch live weather data and is designed to add an AI-powered “smart forecast” summary layer.
+SmartWeather is a modern .NET 10 backend project that showcases core skills for C#/.NET roles: RESTful APIs, EF Core persistence, background workers, resilient HTTP calls with Polly, in-memory caching, rate limiting, and OpenAPI documentation via Scalar UI. It integrates with WeatherAPI.com to fetch live weather data and uses Google Gemini to generate AI-powered “smart forecast” summaries.
 
 ## Tech Stack
 
@@ -10,6 +10,7 @@ SmartWeather is a modern .NET 10 backend project that showcases core skills for 
 - Resilient HTTP calls with Polly (retry + circuit breaker) via `IHttpClientFactory` [web:182][web:194]
 - OpenAPI + Scalar.AspNetCore for interactive API documentation [web:61][web:63]
 - WeatherAPI.com for current weather data [web:112][web:172]
+- Google Gemini API (Flash / Flash-Lite models) for natural-language summaries [web:242][web:243][web:247]
 
 ## Current Features
 
@@ -62,8 +63,8 @@ SmartWeather includes an AI-assisted endpoint that turns raw weather data into a
     - Calls an injected `IWeatherSummaryClient` to turn that prompt into natural language.
   - `GeminiWeatherSummaryClient`:
     - Implements `IWeatherSummaryClient` using Google’s Gemini API.
-    - Sends a `generateContent` request to Gemini (1.5 Flash / 2.0 Flash-Lite).
-    - Extracts the summary text from the first response candidate and returns it.
+    - Sends a `generateContent` request to Gemini (e.g., 1.5 Flash / 2.0 Flash-Lite).
+    - Extracts the summary text from the first response candidate and returns it [web:243][web:247].
 
 - **API surface**
   - `SmartForecastController` exposes:
@@ -75,6 +76,7 @@ SmartWeather includes an AI-assisted endpoint that turns raw weather data into a
     4. The controller returns that summary as plain text in the HTTP response.
 
 Instead of just forwarding raw JSON from WeatherAPI, this endpoint demonstrates how to combine:
+
 - Scheduled data ingestion (background worker),
 - Persistence (EF Core),
 - External APIs (WeatherAPI + Gemini),
@@ -84,7 +86,7 @@ Instead of just forwarding raw JSON from WeatherAPI, this endpoint demonstrates 
 
 - **WeatherAPI key**: stored in `.NET` user secrets under `WeatherApi:ApiKey`, never committed to Git.
 - **Gemini API key**: stored in `.NET` user secrets under `Gemini:ApiKey`, also kept out of source control.
-- Configuration values are accessed via `IConfiguration` in `Program.cs` and `GeminiWeatherSummaryClient`, so keys can be injected securely in different environments.
+- Configuration values are accessed via `IConfiguration` (e.g., in `Program.cs` and `GeminiWeatherSummaryClient`), so keys can be injected securely in different environments [web:128][web:216][web:220].
 
 ## SmartForecast Performance & Resilience
 
@@ -113,32 +115,60 @@ To keep the AI layer efficient and production-friendly, SmartWeather adds both c
   - This protects the AI-backed endpoint from abuse or accidental request storms [web:272][web:273][web:279].
 
 Together, these patterns demonstrate:
+
 - In-memory caching to avoid unnecessary external calls.
 - Controlled API access with rate limiting.
 - A realistic backend design for AI-assisted features.
 
-## Testing (Planned)
+## Architecture Overview
 
-To keep the codebase maintainable and interview-ready, the next steps include unit and integration tests:
+SmartWeather is structured as a layered backend application:
 
-- **Unit tests**
-  - `ForecastSummaryService`:
-    - Uses an in-memory `WeatherDbContext` (e.g., EF Core InMemory provider) to verify:
-      - Returns `null` when no snapshot exists.
-      - Builds prompts correctly and calls the LLM client once on cache miss.
-      - Returns cached summaries without re-calling the LLM.
-  - `GeminiWeatherSummaryClient`:
-    - Tested with a mocked `HttpMessageHandler` / `HttpClient` to:
-      - Verify request shape (endpoint, headers) and response parsing into plain text.
-      - Avoid calling the real Gemini API during tests [web:287][web:289][web:291][web:297].
+- **Web API layer**
+  - Controllers (`WeatherForecastController`, `SavedLocationsController`, `WeatherSnapshotsController`, `SmartForecastController`) expose REST endpoints.
+  - Attribute routing (`api/[controller]`) and OpenAPI/Scalar for discoverability.
 
-- **Integration tests**
-  - End-to-end tests using `WebApplicationFactory` / TestServer:
-    - Call `GET /api/SmartForecast/{city}` with seeded `WeatherSnapshots`.
-    - Assert that the controller returns the expected summary when the LLM client is mocked.
-    - Provide realistic coverage of routing, DI, caching, and controller behavior [web:298][web:292][web:294].
+- **Data access layer**
+  - `WeatherDbContext` (EF Core) manages:
+    - `SavedLocations` table.
+    - `WeatherSnapshots` table.
+  - Uses SQL Server LocalDB in development; tests use the EF Core InMemory provider for isolation and speed [web:311][web:312].
 
-These tests will make the project a strong example of testable architecture (services + interfaces + controllers) in ASP.NET Core.
+- **Background processing**
+  - `WeatherPollingService` as a hosted `BackgroundService`:
+    - Pulls current conditions from WeatherAPI using a resilient HttpClient (Polly retry + circuit breaker).
+    - Writes snapshots to the database on a schedule.
+
+- **AI summarization layer**
+  - `ForecastSummaryService` orchestrates:
+    - Reading snapshots.
+    - Building LLM prompts.
+    - Calling `IWeatherSummaryClient`.
+    - Managing in-memory caching per city.
+  - `GeminiWeatherSummaryClient` encapsulates:
+    - Gemini REST API calls.
+    - JSON parsing from `candidates[0].content.parts[0].text` into plain text summaries [web:243][web:247][web:255].
+
+This architecture demonstrates separation of concerns between HTTP, persistence, background jobs, and AI integration, and uses modern .NET patterns (DI, HttpClientFactory, Polly, IMemoryCache, rate limiting) [web:329][web:335].
+
+## Testing
+
+SmartWeather includes unit tests to keep the AI orchestration and Gemini integration safe to evolve:
+
+- **ForecastSummaryService tests**
+  - Use EF Core InMemory database seeded with `WeatherSnapshot` data.
+  - Mock `IWeatherSummaryClient` to avoid real Gemini calls.
+  - Verify:
+    - Returns `null` when no snapshot exists.
+    - Calls LLM once on cache miss and stores the result.
+    - Serves cached summaries without re-calling the LLM.
+
+- **GeminiWeatherSummaryClient tests**
+  - Use a custom `HttpMessageHandler` to simulate Gemini responses.
+  - Construct a JSON payload matching Gemini’s `candidates/content/parts/text` schema.
+  - Assert that `SummarizeAsync` correctly parses and returns the expected summary string [web:319][web:325][web:328].
+
+These tests provide regression coverage across prompt-building, caching, and JSON parsing, allowing safe iteration on the AI layer over time [web:308][web:311].
 
 ## Containerization (Planned)
 
@@ -151,14 +181,14 @@ Next iteration: run SmartWeather as a containerized backend service.
 
 - **Docker Compose / .NET Aspire**
   - Optionally add a `docker-compose.yml` or .NET Aspire AppHost to:
-    - Run the API + SQL Server LocalDB (or a full SQL Server/SQL Edge container) together.
-    - Make local setup a single command (e.g. `docker compose up`).
+    - Run the API + a SQL Server/SQL Edge container together.
+    - Make local setup a single command (e.g. `docker compose up`) [web:329][web:343][web:341].
 
 Containerization will:
+
 - Make the backend easy to run on any machine.
 - Demonstrate familiarity with modern deployment practices.
-- Let you speak about cloud-native patterns in interviews (even before adding Kubernetes).
-
+- Prepare the project for future cloud-native evolution (Kubernetes, Azure Container Apps, etc.).
 
 ## Getting Started
 
@@ -180,7 +210,15 @@ Containerization will:
    dotnet user-secrets set "WeatherApi:DefaultCity" "Boston"
    ```
 
-3. **Run database setup**
+3. **Configure Gemini API key (development)**
+
+   Store your Gemini API key securely via user secrets:
+
+   ```bash
+   dotnet user-secrets set "Gemini:ApiKey" "YOUR_GEMINI_API_KEY"
+   ```
+
+4. **Run database setup**
 
    Either run EF Core migrations or use `EnsureCreated` (for local dev):
 
@@ -191,35 +229,20 @@ Containerization will:
 
    Or ensure the database is created at startup via `WeatherDbContext.Database.EnsureCreated()`.
 
-4. **Run the API**
+5. **Run the API**
 
    ```bash
    dotnet run
    ```
 
-5. **Explore the API**
+6. **Explore the API**
 
    - Weather forecast: `GET https://localhost:7042/WeatherForecast`
    - Saved locations: `GET https://localhost:7042/api/SavedLocations`
    - Weather snapshots:
      - `GET https://localhost:7042/api/WeatherSnapshots`
      - `GET https://localhost:7042/api/WeatherSnapshots/latest`
+   - Smart forecast (AI summary): `GET https://localhost:7042/api/SmartForecast/{city}`
    - API docs UI: `GET https://localhost:7042/scalar`
 
-## Roadmap
-
-- Add `SmartForecastController` and `ForecastSummaryService` to generate AI-based summaries from `WeatherSnapshots`.
-- Introduce a React/TypeScript frontend that:
-  - Displays current conditions and history.
-  - Shows the AI-generated smart forecast summary.
-- Containerize the services with Docker and optionally orchestrate via .NET Aspire.
-- Add unit/integration tests for:
-  - EF Core data access.
-  - Background worker behavior.
-  - LLM summary generation (using mocked LLM client).
-
 ---
-
-This README now reflects both what you’ve already built and the upcoming LLM feature in a way that a hiring manager or interviewer can quickly understand and appreciate [web:227][web:238].
-
-When you paste this into `README.md`, can you walk through how you’d verbally explain the “Planned AI Feature: Smart Forecast Summary” section to an interviewer in 60–90 seconds?
