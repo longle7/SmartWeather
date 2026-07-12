@@ -1,6 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
 using SmartWeather.Api.Data;
+using SmartWeather.Api.Services;
+using Polly;
+using Polly.Extensions.Http;
+using System.Net.Http;
 
 
 var builder = WebApplication.CreateBuilder(args);
@@ -14,12 +18,30 @@ builder.Services.AddOpenApi();
 builder.Services.AddEndpointsApiExplorer();
 
 
-// This tells the DI container: “Whenever a controller asks for WeatherDbContext, build one using SQL Server and this connection string”.
+// This tells the DI container: “Whenever a controller asks for WeatherDbContext, build one using SQL Server and this connection string”.\
+// EF Core
 var connectionString = builder.Configuration.GetConnectionString("WeatherDatabase")
     ?? "Server=(localdb)\\MSSQLLocalDB;Database=SmartWeatherDb;Trusted_Connection=True;";
 
 builder.Services.AddDbContext<WeatherDbContext>(options =>
     options.UseSqlServer(connectionString));
+
+// WeatherAPI options
+builder.Services.Configure<WeatherApiOptions>(
+    builder.Configuration.GetSection("WeatherApi"));
+
+// HttpClient for WeatherAPI
+builder.Services.AddHttpClient("WeatherApi", client =>
+{
+    client.BaseAddress = new Uri(builder.Configuration["WeatherApi:BaseUrl"]!);
+})
+.AddPolicyHandler(GetRetryPolicy())
+.AddPolicyHandler(GetCircuitBreakerPolicy());
+
+// Background worker
+// AddHostedService<T>() registers this as a SINGLETON internally —
+// one instance is created at startup and lives for the app's entire lifetime.
+builder.Services.AddHostedService<WeatherPollingService>();
 
 var app = builder.Build();
 
@@ -41,3 +63,26 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy()
+{
+    // If that third attempt still fails, the retry policy gives up and surfaces the failure to the caller (your worker), where you log the error.
+    return HttpPolicyExtensions
+        .HandleTransientHttpError() // 5xx, 408, network failures
+        .WaitAndRetryAsync(
+            retryCount: 3,
+            retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt))  // 2s, 4s, 8s
+        );
+}
+
+static IAsyncPolicy<HttpResponseMessage> GetCircuitBreakerPolicy()
+{
+    // Once there have been 5 consecutive transient failures (across multiple worker cycles, not just one),
+    // the circuit breaker opens, meaning further calls immediately fail without even hitting WeatherAPI for 30 seconds.
+    return HttpPolicyExtensions
+        .HandleTransientHttpError()
+        .CircuitBreakerAsync(
+            handledEventsAllowedBeforeBreaking: 5,       // break after 5 consecutive failures
+            durationOfBreak: TimeSpan.FromSeconds(30)    // stay open for 30s before trying again
+        );
+}

@@ -20,4 +20,7 @@ public class WeatherDbContext : DbContext
 
     // "SavedLocations is the DbSet that represents the SavedLocations table, so I use it to query and save SavedLocation entities."
     public DbSet<SavedLocation> SavedLocations { get; set; } = null!;
+
+    public DbSet<WeatherSnapshot> WeatherSnapshots { get; set; } = null!;
+
 }
