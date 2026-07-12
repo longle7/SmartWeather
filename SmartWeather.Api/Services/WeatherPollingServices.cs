@@ -14,6 +14,13 @@ public class WeatherApiOptions
     public string DefaultCity { get; set; } = "Boston";
 }
 
+// WeatherPollingService:
+//  - Runs on a timer as a hosted BackgroundService.
+//  - Calls WeatherAPI (via HttpClient + Polly policies) to fetch current conditions.
+//  - Persists each reading into WeatherDbContext.WeatherSnapshots.
+//  - These snapshots are later used by ForecastSummaryService + GeminiWeatherSummaryClient
+//    to generate AI-written "smart forecast" summaries.
+
 public class WeatherPollingService : BackgroundService
 {
     private readonly IHttpClientFactory _httpClientFactory;
@@ -48,7 +55,7 @@ public class WeatherPollingService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Simple loop: poll every 15 minutes
+        // Simple loop: poll every 30 seconds
         while (!stoppingToken.IsCancellationRequested)
         {
             try

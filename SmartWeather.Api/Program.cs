@@ -38,6 +38,18 @@ builder.Services.AddHttpClient("WeatherApi", client =>
 .AddPolicyHandler(GetRetryPolicy())
 .AddPolicyHandler(GetCircuitBreakerPolicy());
 
+// Gemini client
+//builder.Services.AddHttpClient<GeminiWeatherSummaryClient>(client =>
+builder.Services.AddHttpClient<IWeatherSummaryClient, GeminiWeatherSummaryClient>(client =>
+
+{
+    client.BaseAddress = new Uri("https://generativelanguage.googleapis.com/");
+});
+
+// Registering
+builder.Services.AddScoped<ForecastSummaryService>();
+
+
 // Background worker
 // AddHostedService<T>() registers this as a SINGLETON internally —
 // one instance is created at startup and lives for the app's entire lifetime.
