@@ -170,9 +170,7 @@ SmartWeather includes unit tests to keep the AI orchestration and Gemini integra
 
 These tests provide regression coverage across prompt-building, caching, and JSON parsing, allowing safe iteration on the AI layer over time [web:308][web:311].
 
-## Containerization (Planned)
-
-Next iteration: run SmartWeather as a containerized backend service.
+## Containerization
 
 - **Docker**
   - Add a `Dockerfile` for `SmartWeather.Api` targeting .NET 10.
@@ -192,6 +190,10 @@ Containerization will:
 
 ## Getting Started
 
+### Running Locally (Development)
+
+For local development on Windows, SmartWeather uses SQL Server LocalDB and .NET user secrets for API keys.
+
 1. **Clone the repository**
 
    ```bash
@@ -199,50 +201,102 @@ Containerization will:
    cd SmartWeather/SmartWeather.Api
    ```
 
-2. **Configure WeatherAPI keys (development)**
-
-   Use .NET user secrets to store your WeatherAPI credentials:
+2. **Configure WeatherAPI & Gemini keys (user secrets)**
 
    ```bash
    dotnet user-secrets init
    dotnet user-secrets set "WeatherApi:ApiKey" "YOUR_WEATHERAPI_KEY"
    dotnet user-secrets set "WeatherApi:BaseUrl" "https://api.weatherapi.com/v1"
    dotnet user-secrets set "WeatherApi:DefaultCity" "Boston"
-   ```
-
-3. **Configure Gemini API key (development)**
-
-   Store your Gemini API key securely via user secrets:
-
-   ```bash
    dotnet user-secrets set "Gemini:ApiKey" "YOUR_GEMINI_API_KEY"
    ```
 
-4. **Run database setup**
+3. **Database setup (LocalDB)**
 
-   Either run EF Core migrations or use `EnsureCreated` (for local dev):
+   Ensure a connection string named `WeatherDatabase` exists in `appsettings.json` or rely on the fallback:
+
+   ```text
+   Server=(localdb)\MSSQLLocalDB;Database=SmartWeatherDb;Trusted_Connection=True;
+   ```
+
+   Then run migrations:
 
    ```bash
    dotnet ef migrations add InitialCreate
    dotnet ef database update
    ```
 
-   Or ensure the database is created at startup via `WeatherDbContext.Database.EnsureCreated()`.
-
-5. **Run the API**
+4. **Run the API**
 
    ```bash
    dotnet run
    ```
 
-6. **Explore the API**
+5. **Explore the API locally**
 
-   - Weather forecast: `GET https://localhost:7042/WeatherForecast`
-   - Saved locations: `GET https://localhost:7042/api/SavedLocations`
-   - Weather snapshots:
-     - `GET https://localhost:7042/api/WeatherSnapshots`
-     - `GET https://localhost:7042/api/WeatherSnapshots/latest`
-   - Smart forecast (AI summary): `GET https://localhost:7042/api/SmartForecast/{city}`
-   - API docs UI: `GET https://localhost:7042/scalar`
+   - Scalar UI: `https://localhost:7042/scalar`
+   - Smart forecast: `https://localhost:7042/api/SmartForecast/Boston`
+
+### Running in Docker
+
+SmartWeather can also run inside a Docker container. In this mode, the app uses **EF Core InMemory** for the `WeatherDbContext` (controlled by a `UseInMemoryDb` flag) to avoid LocalDB, which is not supported on Linux-based containers [web:372][web:377][web:380].
+
+> Note: In Docker, snapshots are stored in an in-memory database inside the container. This is ideal for demos and local testing. For a full production setup you’d point EF Core at a real SQL Server/SQL Edge instance [web:418][web:419][web:423].
+
+1. **Build the Docker image**
+
+   From the solution root:
+
+   ```bash
+   docker build -t smartweather-api -f SmartWeather.Api/Dockerfile .
+   ```
+
+2. **Run the container**
+
+   The app reads configuration from environment variables:
+
+   - `UseInMemoryDb=true` → Use EF Core InMemory instead of LocalDB.
+   - `WeatherApi__ApiKey` → WeatherAPI key.
+   - `WeatherApi__BaseUrl` → WeatherAPI base URL.
+   - `WeatherApi__DefaultCity` → Default city (e.g., Boston).
+   - `Gemini__ApiKey` → Gemini API key.
+
+   Example:
+
+   ```bash
+   docker run --name smartweather-api-dev -p 8080:8080 \
+     -e UseInMemoryDb=true \
+     -e WeatherApi__ApiKey="YOUR_WEATHERAPI_KEY" \
+     -e WeatherApi__BaseUrl="https://api.weatherapi.com/v1" \
+     -e WeatherApi__DefaultCity="Boston" \
+     -e Gemini__ApiKey="YOUR_GEMINI_API_KEY" \
+     smartweather-api
+   ```
+
+3. **Explore the API in Docker**
+
+   With the container running:
+
+   - Scalar UI: `http://localhost:8080/scalar`
+   - Smart forecast: `http://localhost:8080/api/SmartForecast/Boston`
+
+   Behind the scenes:
+
+   - `WeatherPollingService` calls WeatherAPI and writes snapshots to the in-memory database.
+   - `SmartForecastController` and `ForecastSummaryService` read those snapshots.
+   - `GeminiWeatherSummaryClient` calls Gemini to generate a natural-language summary.
+   - If Gemini is under high load (e.g., returns 503), the API can be extended to handle this gracefully in responses.
+
+4. **Stopping and removing the container**
+
+   ```bash
+   docker stop smartweather-api-dev
+   docker rm smartweather-api-dev
+   ```
+
+This section ensures anyone can:
+
+- Run the app locally with LocalDB and user secrets.
+- Run the Dockerized version with EF Core InMemory and environment-based configuration [web:418][web:419][web:423][web:427].
 
 ---

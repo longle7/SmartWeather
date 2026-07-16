@@ -68,8 +68,16 @@ public class GeminiWeatherSummaryClient : IWeatherSummaryClient
         if (!response.IsSuccessStatusCode)
         {
             var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
-            throw new InvalidOperationException(
+            if ((int)response.StatusCode == 503)
+            {
+                // Option A: return a fallback summary instead of throwing
+                return "The AI summary service is currently experiencing high demand. Please try again in a moment.";
+            }
+            else
+            {
+                throw new InvalidOperationException(
                 $"Gemini API returned {(int)response.StatusCode} {response.StatusCode}: {errorBody}");
+            }
         }
         response.EnsureSuccessStatusCode();
 

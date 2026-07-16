@@ -10,6 +10,12 @@ using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
+var rawFlag = builder.Configuration["UseInMemoryDb"];
+Console.WriteLine($"UseInMemoryDb (raw) = {rawFlag}");
+
+var useInMemory = rawFlag == "true";
+Console.WriteLine($"useInMemory: {useInMemory}");
+
 // Add services to the container.
 // AddControllers() registers MVC controller support and scans for classes that inherit from ControllerBase (like WeatherForecastController).
 builder.Services.AddControllers();
@@ -21,14 +27,23 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddMemoryCache();
 builder.Services.AddScoped<ForecastSummaryService>();
 
-
 // This tells the DI container: “Whenever a controller asks for WeatherDbContext, build one using SQL Server and this connection string”.\
 // EF Core
 var connectionString = builder.Configuration.GetConnectionString("WeatherDatabase")
     ?? "Server=(localdb)\\MSSQLLocalDB;Database=SmartWeatherDb;Trusted_Connection=True;";
 
-builder.Services.AddDbContext<WeatherDbContext>(options =>
-    options.UseSqlServer(connectionString));
+if (useInMemory)
+{
+    // In Docker / non-Windows, use an in-memory database for demo
+    builder.Services.AddDbContext<WeatherDbContext>(options =>
+        options.UseInMemoryDatabase("SmartWeatherDbContainer"));
+}
+else
+{
+    // On your dev machine (Windows), use SQL Server LocalDB
+    builder.Services.AddDbContext<WeatherDbContext>(options =>
+        options.UseSqlServer(connectionString));
+}
 
 // WeatherAPI options
 builder.Services.Configure<WeatherApiOptions>(
@@ -78,14 +93,11 @@ var app = builder.Build();
 app.UseRateLimiter();
 
 // Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
-    // MapOpenApi() exposes the OpenAPI JSON.
-    app.MapOpenApi();
+// MapOpenApi() exposes the OpenAPI JSON.
+app.MapOpenApi();
 
-    // UseSwaggerUI serves the UI at /swagger by default and needs to know where the JSON lives (/openapi/v1.json).
-    app.MapScalarApiReference();   // UI at /scalar
-}
+// UseSwaggerUI serves the UI at /swagger by default and needs to know where the JSON lives (/openapi/v1.json).
+app.MapScalarApiReference();   // UI at /scalar
 
 app.UseHttpsRedirection();
 

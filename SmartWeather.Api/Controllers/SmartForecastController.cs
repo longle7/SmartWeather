@@ -36,13 +36,24 @@ public class SmartForecastController : ControllerBase
     [EnableRateLimiting("smartForecastLimiter")] // Apply limiter to this controller [web:272][web:275]
     public async Task<ActionResult<string>> Get(string city, CancellationToken cancellationToken)
     {
-        var summary = await _summaryService.GetSmartSummaryAsync(city, cancellationToken);
-
-        if (summary is null)
+        try
         {
-            return NotFound($"No weather snapshot found for city '{city}'.");
-        }
+            var summary = await _summaryService.GetSmartSummaryAsync(city, cancellationToken);
 
-        return Ok(summary);
+            if (summary is null)
+            {
+                return NotFound($"No weather snapshot found for city '{city}'.");
+            }
+
+            return Ok(summary);
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("Gemini API"))
+        {
+            // Map Gemini failures to a 503 with a clearer payload
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+            {
+                error = "Gemini is currently unavailable. Please try again later."
+            });
+        }
     }
 }
