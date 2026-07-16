@@ -314,4 +314,6 @@ The React app lives in `SmartWeather.React` and calls the API to show AI-generat
 
    - **Saved Weather** tab: calls `GET /api/WeatherSnapshots` and lists saved snapshots.
 
+   - **Reports** tab: calls /api/WeatherReports/average-temperatures and /api/WeatherReports/snapshot-counts to show aggregated statistics per city.
+
 Make sure CORS is enabled in the API to allow requests from `http://localhost:5173` during development.
