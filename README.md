@@ -300,3 +300,97 @@ This section ensures anyone can:
 - Run the Dockerized version with EF Core InMemory and environment-based configuration [web:418][web:419][web:423][web:427].
 
 ---
+
+## Frontend (SmartWeather.React)
+
+This solution includes a React frontend built with Vite and TypeScript in the `SmartWeather.React` folder. The frontend calls the ASP.NET Core Web API to display AI-generated weather summaries and saved snapshots.
+
+### Running the backend
+
+From the `SmartWeather.Api` folder:
+
+```bash
+dotnet run
+```
+
+The API will listen on `http://localhost:5205` by default.
+
+### Running the frontend
+
+From the `SmartWeather.React` folder:
+
+```bash
+npm install    # first time only
+npm run dev
+```
+
+The React app will be available at `http://localhost:5173`.
+
+### API integration
+
+The React app consumes the following endpoints:
+
+- `GET /api/SmartForecast/{city}`  
+  Returns a JSON object:
+
+  ```json
+  {
+    "city": "Boston",
+    "summary": "AI-generated forecast summary...",
+    "temperatureC": 21.5,
+    "retrievedAtUtc": "2026-07-16T16:13:13Z"
+  }
+  ```
+
+- `GET /api/WeatherSnapshots`  
+  Returns an array of saved weather snapshots with city, condition text, temperature, and timestamp.
+
+The backend uses `ForecastSummaryService` to:
+
+- Read the latest `WeatherSnapshot` from EF Core.
+- Build a prompt and call `IWeatherSummaryClient` (e.g., `GeminiWeatherSummaryClient`).
+- Return a structured `SmartForecastResult` that is mapped to a DTO for the frontend.
+
+The frontend uses:
+
+- A **Home** tab to show the current smart forecast for a default city (e.g., Boston).
+- A **Saved Weather** tab to list all saved snapshots returned from the API.
+
+Make sure CORS is configured in the API to allow requests from `http://localhost:5173` during development.
+
+### Running the API in Docker and React locally
+
+You can run the ASP.NET Core API in Docker and the React UI locally:
+
+1. Start the API in Docker:
+
+   ```bash
+   cd SmartWeather.Api
+   docker build -t smartweather-api -f Dockerfile .
+   docker run --name smartweather-api-dev -p 8080:8080 \
+     -e UseInMemoryDb=true \
+     -e WeatherApi__ApiKey="YOUR_WEATHERAPI_KEY" \
+     -e WeatherApi__BaseUrl="https://api.weatherapi.com/v1" \
+     -e WeatherApi__DefaultCity="Boston" \
+     -e Gemini__ApiKey="YOUR_GEMINI_API_KEY" \
+     smartweather-api
+   ```
+
+   The API will be available at `http://localhost:8080`.
+
+2. Update the React API base URL (for development) to point to Docker:
+
+   ```ts
+   // SmartWeather.React/src/api/smartForecastApi.ts
+   const API_BASE_URL = "http://localhost:8080";
+   ```
+
+3. Run the React app:
+
+   ```bash
+   cd SmartWeather.React
+   npm install
+   npm run dev
+   ```
+
+   Open `http://localhost:5173` in the browser. The Home tab will call `/api/SmartForecast/{city}` on the Dockerized API, and the Saved Weather tab will call `/api/WeatherSnapshots`.
