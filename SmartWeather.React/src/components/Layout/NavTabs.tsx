@@ -26,6 +26,16 @@ const NavTabs: React.FC = () => {
             >
                 Saved Weather
             </NavLink>
+            <NavLink
+                to="/reports"
+                style={({ isActive }) => ({
+                    marginRight: "1rem",
+                    textDecoration: "none",
+                    fontWeight: isActive ? "bold" : "normal",
+                })}
+            >
+                Reports
+            </NavLink>
         </nav>
     );
 };
