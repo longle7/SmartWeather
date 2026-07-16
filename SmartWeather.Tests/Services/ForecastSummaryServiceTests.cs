@@ -71,7 +71,7 @@ public class ForecastSummaryServiceTests
 
         // Assert
         Assert.NotNull(result);
-        Assert.Equal("It is a mild, partly cloudy day in Boston.", result);
+        Assert.Equal("It is a mild, partly cloudy day in Boston.", result.Summary);
 
         // LLM should be called exactly once
         llmMock.Verify(x => x.SummarizeAsync(It.IsAny<string>(), default), Times.Once);
@@ -110,7 +110,7 @@ public class ForecastSummaryServiceTests
 
         // First call: populates the cache and calls the LLM once
         var first = await service.GetSmartSummaryAsync("Boston");
-        Assert.Equal("Cached summary for Boston.", first);
+        Assert.Equal("Cached summary for Boston.", first.Summary);
 
         // Reset mock call history so we can check the second call cleanly
         llmMock.Invocations.Clear();
@@ -119,7 +119,7 @@ public class ForecastSummaryServiceTests
         var second = await service.GetSmartSummaryAsync("Boston");
 
         // Assert
-        Assert.Equal("Cached summary for Boston.", second);
+        Assert.Equal("Cached summary for Boston.", second.Summary);
         llmMock.Verify(x => x.SummarizeAsync(It.IsAny<string>(), default), Times.Never);
     }
 

@@ -10,11 +10,25 @@ using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
-var rawFlag = builder.Configuration["UseInMemoryDb"];
-Console.WriteLine($"UseInMemoryDb (raw) = {rawFlag}");
 
+// Backend: dotnet run (5205)
+// Frontend: npm run dev(5173)
+// Browser: http://localhost:5173
+// React → API calls → SmartWeather.Api
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowReactDev", policy =>
+    {
+        policy
+            .WithOrigins("http://localhost:5173")
+            .AllowAnyHeader()
+            .AllowAnyMethod();
+    });
+});
+
+var rawFlag = builder.Configuration["UseInMemoryDb"];
 var useInMemory = rawFlag == "true";
-Console.WriteLine($"useInMemory: {useInMemory}");
 
 // Add services to the container.
 // AddControllers() registers MVC controller support and scans for classes that inherit from ControllerBase (like WeatherForecastController).
@@ -90,6 +104,8 @@ builder.Services.AddRateLimiter(options =>
 
 var app = builder.Build();
 
+app.UseRouting();
+
 app.UseRateLimiter();
 
 // Configure the HTTP request pipeline.
@@ -102,6 +118,8 @@ app.MapScalarApiReference();   // UI at /scalar
 app.UseHttpsRedirection();
 
 app.UseAuthorization();
+
+app.UseCors("AllowReactDev");
 
 // app.MapControllers() adds route mappings based on attributes like [ApiController] and [Route("[controller]")] on those classes.
 app.MapControllers();

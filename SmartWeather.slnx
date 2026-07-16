@@ -1,4 +1,8 @@
 <Solution>
   <Project Path="SmartWeather.Api/SmartWeather.Api.csproj" />
+  <Project Path="SmartWeather.React/SmartWeather.React.esproj">
+    <Build />
+    <Deploy />
+  </Project>
   <Project Path="SmartWeather.Tests/SmartWeather.Tests.csproj" />
 </Solution>

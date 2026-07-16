@@ -31,6 +31,13 @@ public class SmartForecastController : ControllerBase
         _summaryService = summaryService;
     }
 
+    public record SmartForecastDto(
+        string City,
+        string Summary,
+        double TemperatureC,
+        DateTime RetrievedAtUtc
+    );
+
     // GET: api/SmartForecast/{city}
     [HttpGet("{city}")]
     [EnableRateLimiting("smartForecastLimiter")] // Apply limiter to this controller [web:272][web:275]
@@ -38,14 +45,21 @@ public class SmartForecastController : ControllerBase
     {
         try
         {
-            var summary = await _summaryService.GetSmartSummaryAsync(city, cancellationToken);
+            var result = await _summaryService.GetSmartSummaryAsync(city, cancellationToken);
 
-            if (summary is null)
+            if (result is null)
             {
                 return NotFound($"No weather snapshot found for city '{city}'.");
             }
 
-            return Ok(summary);
+            var dto = new SmartForecastDto(
+                City: result.City,
+                Summary: result.Summary,
+                TemperatureC: result.TemperatureC,
+                RetrievedAtUtc: result.RetrievedAtUtc
+            );
+
+            return Ok(result);
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("Gemini API"))
         {

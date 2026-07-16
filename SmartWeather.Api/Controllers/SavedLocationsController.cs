@@ -7,6 +7,9 @@ namespace SmartWeather.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+
+// SavedLocationsController where cites and countries can be saved and retrieved
+// from the database
 public class SavedLocationsController : ControllerBase
 {
     private readonly WeatherDbContext _db;

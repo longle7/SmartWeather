@@ -36,12 +36,20 @@ public class ForecastSummaryService
         _cache = cache;
     }
 
-    public async Task<string?> GetSmartSummaryAsync(string city, CancellationToken cancellationToken = default)
+    public class SmartForecastResult
+    {
+        public string City { get; init; } = default!;
+        public string Summary { get; init; } = default!;
+        public double TemperatureC { get; init; }
+        public DateTime RetrievedAtUtc { get; init; }
+    }
+
+    public async Task<SmartForecastResult?> GetSmartSummaryAsync(string city, CancellationToken cancellationToken = default)
     {
         // Try to get a cached summary for this city.
         var cacheKey = $"SmartForecast:{city}";
 
-        if (_cache.TryGetValue(cacheKey, out string cachedSummary))
+        if (_cache.TryGetValue(cacheKey, out SmartForecastResult cachedSummary))
         {
             return cachedSummary;
         }
@@ -62,13 +70,21 @@ public class ForecastSummaryService
 
         var summary = await _llmClient.SummarizeAsync(prompt, cancellationToken);
 
+        var result = new SmartForecastResult
+        {
+            City = snapshot.City,
+            Summary = summary,
+            TemperatureC = snapshot.TemperatureC,
+            RetrievedAtUtc = snapshot.RetrievedAtUtc
+        };
+
         // Store the summary in cache with a short expiration window.
         var cacheOptions = new MemoryCacheEntryOptions()
             .SetAbsoluteExpiration(TimeSpan.FromMinutes(5)); // 5 minutes is a good starting point [web:278][web:285]
 
         _cache.Set(cacheKey, summary, cacheOptions);
 
-        return summary;
+        return result;
     }
 
     private static string BuildPrompt(WeatherSnapshot snapshot)
