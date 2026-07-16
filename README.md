@@ -190,18 +190,24 @@ Containerization will:
 
 ## Getting Started
 
-### Running Locally (Development)
+This solution has three main pieces:
 
-For local development on Windows, SmartWeather uses SQL Server LocalDB and .NET user secrets for API keys.
+- `SmartWeather.Api`: ASP.NET Core Web API (WeatherAPI + Gemini + EF Core)
+- `SmartWeather.Tests`: xUnit tests for the backend
+- `SmartWeather.React`: React + Vite frontend
 
-1. **Clone the repository**
+### Run the API locally (LocalDB)
+
+For local development on Windows, the API uses SQL Server LocalDB and .NET user secrets.
+
+1. Clone and enter the API project:
 
    ```bash
    git clone https://github.com/your-username/SmartWeather.git
    cd SmartWeather/SmartWeather.Api
    ```
 
-2. **Configure WeatherAPI & Gemini keys (user secrets)**
+2. Configure WeatherAPI & Gemini keys (user secrets):
 
    ```bash
    dotnet user-secrets init
@@ -211,57 +217,38 @@ For local development on Windows, SmartWeather uses SQL Server LocalDB and .NET 
    dotnet user-secrets set "Gemini:ApiKey" "YOUR_GEMINI_API_KEY"
    ```
 
-3. **Database setup (LocalDB)**
-
-   Ensure a connection string named `WeatherDatabase` exists in `appsettings.json` or rely on the fallback:
+3. Configure LocalDB and apply migrations:
 
    ```text
-   Server=(localdb)\MSSQLLocalDB;Database=SmartWeatherDb;Trusted_Connection=True;
+   ConnectionStrings:WeatherDatabase = Server=(localdb)\MSSQLLocalDB;Database=SmartWeatherDb;Trusted_Connection=True;
    ```
 
-   Then run migrations:
-
    ```bash
-   dotnet ef migrations add InitialCreate
    dotnet ef database update
    ```
 
-4. **Run the API**
+4. Run the API:
 
    ```bash
    dotnet run
    ```
 
-5. **Explore the API locally**
+   Typical dev URLs:
 
-   - Scalar UI: `https://localhost:7042/scalar`
-   - Smart forecast: `https://localhost:7042/api/SmartForecast/Boston`
+   - Scalar UI: `https://localhost:7042/scalar` (if using the https profile)
+   - Smart forecast: `https://localhost:7042/api/SmartForecast/Boston` or `http://localhost:5205/api/SmartForecast/Boston`
 
-### Running in Docker
+### Run the API in Docker (InMemory EF)
 
-SmartWeather can also run inside a Docker container. In this mode, the app uses **EF Core InMemory** for the `WeatherDbContext` (controlled by a `UseInMemoryDb` flag) to avoid LocalDB, which is not supported on Linux-based containers [web:372][web:377][web:380].
+The API can also run inside a Docker container using EF Core InMemory for `WeatherDbContext` (controlled by `UseInMemoryDb=true`), which avoids LocalDB and is ideal for demos.
 
-> Note: In Docker, snapshots are stored in an in-memory database inside the container. This is ideal for demos and local testing. For a full production setup you’d point EF Core at a real SQL Server/SQL Edge instance [web:418][web:419][web:423].
-
-1. **Build the Docker image**
-
-   From the solution root:
+1. Build the Docker image from the solution root:
 
    ```bash
    docker build -t smartweather-api -f SmartWeather.Api/Dockerfile .
    ```
 
-2. **Run the container**
-
-   The app reads configuration from environment variables:
-
-   - `UseInMemoryDb=true` → Use EF Core InMemory instead of LocalDB.
-   - `WeatherApi__ApiKey` → WeatherAPI key.
-   - `WeatherApi__BaseUrl` → WeatherAPI base URL.
-   - `WeatherApi__DefaultCity` → Default city (e.g., Boston).
-   - `Gemini__ApiKey` → Gemini API key.
-
-   Example:
+2. Run the container:
 
    ```bash
    docker run --name smartweather-api-dev -p 8080:8080 \
@@ -273,124 +260,58 @@ SmartWeather can also run inside a Docker container. In this mode, the app uses 
      smartweather-api
    ```
 
-3. **Explore the API in Docker**
-
-   With the container running:
+   API URLs in Docker:
 
    - Scalar UI: `http://localhost:8080/scalar`
    - Smart forecast: `http://localhost:8080/api/SmartForecast/Boston`
 
-   Behind the scenes:
-
-   - `WeatherPollingService` calls WeatherAPI and writes snapshots to the in-memory database.
-   - `SmartForecastController` and `ForecastSummaryService` read those snapshots.
-   - `GeminiWeatherSummaryClient` calls Gemini to generate a natural-language summary.
-   - If Gemini is under high load (e.g., returns 503), the API can be extended to handle this gracefully in responses.
-
-4. **Stopping and removing the container**
+3. Stop and remove the container when done:
 
    ```bash
    docker stop smartweather-api-dev
    docker rm smartweather-api-dev
    ```
 
-This section ensures anyone can:
+### Run the React frontend (SmartWeather.React)
 
-- Run the app locally with LocalDB and user secrets.
-- Run the Dockerized version with EF Core InMemory and environment-based configuration [web:418][web:419][web:423][web:427].
+The React app lives in `SmartWeather.React` and calls the API to show AI-generated summaries and saved snapshots.
 
----
+1. Start the API (either locally or via Docker):
 
-## Frontend (SmartWeather.React)
+   - Local: `dotnet run` (API at `http://localhost:5205`)
+   - Docker: `docker run ... -p 8080:8080` (API at `http://localhost:8080`)
 
-This solution includes a React frontend built with Vite and TypeScript in the `SmartWeather.React` folder. The frontend calls the ASP.NET Core Web API to display AI-generated weather summaries and saved snapshots.
-
-### Running the backend
-
-From the `SmartWeather.Api` folder:
-
-```bash
-dotnet run
-```
-
-The API will listen on `http://localhost:5205` by default.
-
-### Running the frontend
-
-From the `SmartWeather.React` folder:
-
-```bash
-npm install    # first time only
-npm run dev
-```
-
-The React app will be available at `http://localhost:5173`.
-
-### API integration
-
-The React app consumes the following endpoints:
-
-- `GET /api/SmartForecast/{city}`  
-  Returns a JSON object:
-
-  ```json
-  {
-    "city": "Boston",
-    "summary": "AI-generated forecast summary...",
-    "temperatureC": 21.5,
-    "retrievedAtUtc": "2026-07-16T16:13:13Z"
-  }
-  ```
-
-- `GET /api/WeatherSnapshots`  
-  Returns an array of saved weather snapshots with city, condition text, temperature, and timestamp.
-
-The backend uses `ForecastSummaryService` to:
-
-- Read the latest `WeatherSnapshot` from EF Core.
-- Build a prompt and call `IWeatherSummaryClient` (e.g., `GeminiWeatherSummaryClient`).
-- Return a structured `SmartForecastResult` that is mapped to a DTO for the frontend.
-
-The frontend uses:
-
-- A **Home** tab to show the current smart forecast for a default city (e.g., Boston).
-- A **Saved Weather** tab to list all saved snapshots returned from the API.
-
-Make sure CORS is configured in the API to allow requests from `http://localhost:5173` during development.
-
-### Running the API in Docker and React locally
-
-You can run the ASP.NET Core API in Docker and the React UI locally:
-
-1. Start the API in Docker:
-
-   ```bash
-   cd SmartWeather.Api
-   docker build -t smartweather-api -f Dockerfile .
-   docker run --name smartweather-api-dev -p 8080:8080 \
-     -e UseInMemoryDb=true \
-     -e WeatherApi__ApiKey="YOUR_WEATHERAPI_KEY" \
-     -e WeatherApi__BaseUrl="https://api.weatherapi.com/v1" \
-     -e WeatherApi__DefaultCity="Boston" \
-     -e Gemini__ApiKey="YOUR_GEMINI_API_KEY" \
-     smartweather-api
-   ```
-
-   The API will be available at `http://localhost:8080`.
-
-2. Update the React API base URL (for development) to point to Docker:
+2. Configure the React API base URL in `src/api/smartForecastApi.ts` and `src/api/weatherSnapshotsApi.ts`:
 
    ```ts
-   // SmartWeather.React/src/api/smartForecastApi.ts
-   const API_BASE_URL = "http://localhost:8080";
+   // Example: local API
+   const API_BASE_URL = "http://localhost:5205";
+
+   // Example: Docker API
+   // const API_BASE_URL = "http://localhost:8080";
    ```
 
 3. Run the React app:
 
    ```bash
-   cd SmartWeather.React
-   npm install
+   cd SmartWeather/SmartWeather.React
+   npm install    # first time only
    npm run dev
    ```
 
-   Open `http://localhost:5173` in the browser. The Home tab will call `/api/SmartForecast/{city}` on the Dockerized API, and the Saved Weather tab will call `/api/WeatherSnapshots`.
+   Open `http://localhost:5173` in the browser.
+
+   - **Home** tab: calls `GET /api/SmartForecast/{city}` and displays a JSON payload:
+
+     ```json
+     {
+       "city": "Boston",
+       "summary": "AI-generated forecast summary...",
+       "temperatureC": 21.5,
+       "retrievedAtUtc": "2026-07-16T16:13:13Z"
+     }
+     ```
+
+   - **Saved Weather** tab: calls `GET /api/WeatherSnapshots` and lists saved snapshots.
+
+Make sure CORS is enabled in the API to allow requests from `http://localhost:5173` during development.
